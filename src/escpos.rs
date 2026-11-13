@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use encoding_rs::IBM866;
 
 #[derive(Debug, Deserialize)]
 pub struct ReceiptRequest {
@@ -7,37 +8,112 @@ pub struct ReceiptRequest {
     pub program: String,
     pub duration_min: i32,
     pub amount_rub: f64,
-    pub payment_method: String, // "card" | "cash"
+    pub payment_method: String,
     pub paid_at: String,
-    pub company_name: String, // «название компании»
+    pub company_name: String,
     pub qr_data: String,
+}
+
+/// Кодирует строку в CP866 (IBM866).
+fn cp866(s: &str) -> Vec<u8> {
+    // Заменяем символы, которых нет в CP866, на безопасные аналоги
+    let sanitized = s
+        .replace('«', "\"")
+        .replace('»', "\"")
+        .replace('—', "-")
+        .replace('–', "-");
+
+    let (bytes, _, _) = IBM866.encode(&sanitized);
+    bytes.to_vec()
+}
+
+/// Разбивает строку на строки, не превышающие max_chars, стараясь не разрывать слова.
+fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        if current_line.len() + word.len() + 1 > max_chars && !current_line.is_empty() {
+            lines.push(current_line.trim().to_string());
+            current_line = String::new();
+        }
+        current_line.push_str(word);
+        current_line.push(' ');
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line.trim().to_string());
+    }
+    lines
 }
 
 pub fn render_receipt(req: &ReceiptRequest) -> Vec<u8> {
     let mut out = Vec::new();
 
-    // Компания (центр, крупно — ESC ! 0x38 = double width/height)
-    out.extend_from_slice(b"\x1B\x61\x01\x1B\x21\x38");
-    out.extend_from_slice(req.company_name.as_bytes());
-    out.extend_from_slice(b"\x1B\x21\x00\n");   // обычный шрифт
-    out.extend_from_slice(b"\x1B\x61\x00");       // left
+    // Инициализация
+    out.extend_from_slice(&[0x1b, 0x40]);
+
+    // Установка CP866
+    out.extend_from_slice(&[0x1b, 0x74, 0x11]); 
+
+    // --- НАЗВАНИЕ КОМПАНИИ (ЦЕНТР, КРУПНО) ---
+    out.extend_from_slice(&[0x1B, 0x61, 0x01]); // Center
+    out.extend_from_slice(&[0x1B, 0x21, 0x38]); // Double height (крупный)
+
+    let company_lines = wrap_text(&req.company_name, 22);
+    for line in company_lines {
+        out.extend_from_slice(&cp866(&line));
+        out.extend_from_slice(b"\n");
+    }
+    
+    out.extend_from_slice(&[0x1B, 0x21, 0x00]); // Сброс размера шрифта
+    out.extend_from_slice(&[0x1B, 0x61, 0x00]); // Left align для остального текста
+    
+    out.extend_from_slice(b"------------------------------\n");
+
+    // --- ОСНОВНОЙ ТЕКСТ ---
+    out.extend_from_slice(&cp866("Заказ:    "));
+    out.extend_from_slice(format!("{}\n", &req.order_id[..(8).min(req.order_id.len())]).as_bytes());
+
+    out.extend_from_slice(&cp866("Машина:   "));
+    out.extend_from_slice(format!("{}\n", req.machine_id).as_bytes());
+
+    out.extend_from_slice(&cp866("Программа: "));
+    out.extend_from_slice(&cp866(&req.program));
+    out.extend_from_slice(b"\n");
+
+    out.extend_from_slice(&cp866("Длительность: "));
+    out.extend_from_slice(format!("{} ", req.duration_min).as_bytes());
+    out.extend_from_slice(&cp866("мин\n"));
+
+    out.extend_from_slice(&cp866("Сумма:    "));
+    out.extend_from_slice(format!("{:.2} ", req.amount_rub).as_bytes());
+    out.extend_from_slice(&cp866("руб.\n"));
+
+    out.extend_from_slice(&cp866("Оплата:   "));
+    if req.payment_method == "cash" {
+        out.extend_from_slice(&cp866("Наличные\n"));
+    } else {
+        out.extend_from_slice(&cp866("Карта\n"));
+    }
+
+    out.extend_from_slice(&cp866("Время:    "));
+    out.extend_from_slice(req.paid_at.as_bytes());
+    out.extend_from_slice(b"\n");
 
     out.extend_from_slice(b"------------------------------\n");
-    out.extend_from_slice(format!("Order:    {}\n", &req.order_id[..8.min(req.order_id.len())]).as_bytes());
-    out.extend_from_slice(format!("Machine:  {}\n", req.machine_id).as_bytes());
-    out.extend_from_slice(format!("Program:  {}\n", req.program).as_bytes());
-    out.extend_from_slice(format!("Duration: {} min\n", req.duration_min).as_bytes());
-    out.extend_from_slice(format!("Amount:   {:.2} RUB\n", req.amount_rub).as_bytes());
-    out.extend_from_slice(format!("Payment:  {}\n", if req.payment_method == "cash" { "CASH" } else { "CARD" }).as_bytes());
-    out.extend_from_slice(format!("Paid at:  {}\n", req.paid_at).as_bytes());   // время
-    out.extend_from_slice(b"------------------------------\n");
 
-    // QR-код (ESC/POS GS ( k)
+    // --- QR-КОД ---
+    // Выравнивание уже встроено в саму функцию render_qr_escpos.
+    // Команду ESC a 1 здесь ставить НЕ НУЖНО, она игнорируется для растровых картинок.
     if let Ok(qr) = crate::qr::render_qr_escpos(&req.qr_data) {
         out.extend_from_slice(&qr);
     }
 
     out.extend_from_slice(b"\n\n\n");
-    out.extend_from_slice(&[0x1D, 0x56, 0x41, 0x00]); // cut
+    
+    // Отрезка и выдвижение
+    out.extend_from_slice(&[0x1b, 0x69]); // ESC i (Cut)
+    out.extend_from_slice(&[0x1D, 0x65, 0x03, 0x0C]); // GS e (Eject)
+
     out
 }

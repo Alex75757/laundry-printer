@@ -11,3 +11,6 @@ tokio = { version = "1", features = ["full"] }
 serialport = "4.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+qrcode = "0.14"       # генерация QR (матрица модулей)
+image = "0.25"
+encoding_rs = "0.8"

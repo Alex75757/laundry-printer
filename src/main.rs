@@ -1,5 +1,6 @@
 mod escpos;
 mod printer;
+mod qr;
 
 use axum::{
     extract::State,
