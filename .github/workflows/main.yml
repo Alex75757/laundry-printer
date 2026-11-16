@@ -1,4 +1,4 @@
-name: Build & Deploy Windows EXE
+name: Build & Deploy with powershell
 
 on:
   push:
