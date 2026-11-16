@@ -76,7 +76,7 @@ pub fn render_receipt(req: &ReceiptRequest) -> Vec<u8> {
         out.extend_from_slice(b"\n");
     }
     if !req.company_address.is_empty() {
-        out.extend_from_slice(&cp866(&format!("Адрес: {}",&req.company_address));
+        out.extend_from_slice(&cp866(&format!("Адрес: {}",&req.company_address)));
         out.extend_from_slice(b"\n");
     }
 
