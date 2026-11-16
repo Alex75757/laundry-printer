@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use encoding_rs::IBM866;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct ReceiptRequest {
@@ -19,7 +19,11 @@ pub struct ReceiptRequest {
 /// Кодирует строку в CP866 (IBM866).
 fn cp866(s: &str) -> Vec<u8> {
     // Заменяем символы, которых нет в CP866, на безопасные аналоги
-    let sanitized = s.replace('«', "\"").replace('»', "\"").replace('—', "-").replace('–', "-");
+    let sanitized = s
+        .replace('«', "\"")
+        .replace('»', "\"")
+        .replace('—', "-")
+        .replace('–', "-");
 
     let (bytes, _, _) = IBM866.encode(&sanitized);
     bytes.to_vec()
@@ -72,10 +76,8 @@ pub fn render_receipt(req: &ReceiptRequest) -> Vec<u8> {
         out.extend_from_slice(b"\n");
     }
     if !req.company_address.is_empty() {
-        for line in wrap_text(&req.company_address, 32) {
-            out.extend_from_slice(&cp866(&line));
-            out.extend_from_slice(b"\n");
-        }
+        out.extend_from_slice(&cp866(&format!("Адрес: {}",&req.company_address));
+        out.extend_from_slice(b"\n");
     }
 
     out.extend_from_slice(b"------------------------------\n");
