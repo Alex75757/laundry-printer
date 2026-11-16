@@ -11,17 +11,15 @@ pub struct ReceiptRequest {
     pub payment_method: String,
     pub paid_at: String,
     pub company_name: String,
+    pub company_inn: String,
+    pub company_address: String,
     pub qr_data: String,
 }
 
 /// Кодирует строку в CP866 (IBM866).
 fn cp866(s: &str) -> Vec<u8> {
     // Заменяем символы, которых нет в CP866, на безопасные аналоги
-    let sanitized = s
-        .replace('«', "\"")
-        .replace('»', "\"")
-        .replace('—', "-")
-        .replace('–', "-");
+    let sanitized = s.replace('«', "\"").replace('»', "\"").replace('—', "-").replace('–', "-");
 
     let (bytes, _, _) = IBM866.encode(&sanitized);
     bytes.to_vec()
@@ -53,21 +51,33 @@ pub fn render_receipt(req: &ReceiptRequest) -> Vec<u8> {
     out.extend_from_slice(&[0x1b, 0x40]);
 
     // Установка CP866
-    out.extend_from_slice(&[0x1b, 0x74, 0x11]); 
+    out.extend_from_slice(&[0x1b, 0x74, 0x11]);
 
     // --- НАЗВАНИЕ КОМПАНИИ (ЦЕНТР, КРУПНО) ---
-    out.extend_from_slice(&[0x1B, 0x61, 0x01]); // Center
-    out.extend_from_slice(&[0x1B, 0x21, 0x38]); // Double height (крупный)
+    out.extend_from_slice(&[0x1b, 0x61, 0x01]); // Center
+    out.extend_from_slice(&[0x1b, 0x21, 0x38]); // Double height (крупный)
 
     let company_lines = wrap_text(&req.company_name, 22);
     for line in company_lines {
         out.extend_from_slice(&cp866(&line));
         out.extend_from_slice(b"\n");
     }
-    
-    out.extend_from_slice(&[0x1B, 0x21, 0x00]); // Сброс размера шрифта
-    out.extend_from_slice(&[0x1B, 0x61, 0x00]); // Left align для остального текста
-    
+
+    out.extend_from_slice(&[0x1b, 0x21, 0x00]); // Сброс размера шрифта
+    out.extend_from_slice(&[0x1b, 0x61, 0x00]); // Left align для остального текста
+
+    // ── ИНН и адрес (слева, обычный шрифт) ──
+    if !req.company_inn.is_empty() {
+        out.extend_from_slice(&cp866(&format!("ИНН: {}", req.company_inn)));
+        out.extend_from_slice(b"\n");
+    }
+    if !req.company_address.is_empty() {
+        for line in wrap_text(&req.company_address, 32) {
+            out.extend_from_slice(&cp866(&line));
+            out.extend_from_slice(b"\n");
+        }
+    }
+
     out.extend_from_slice(b"------------------------------\n");
 
     // --- ОСНОВНОЙ ТЕКСТ ---
@@ -110,10 +120,10 @@ pub fn render_receipt(req: &ReceiptRequest) -> Vec<u8> {
     }
 
     out.extend_from_slice(b"\n\n\n");
-    
+
     // Отрезка и выдвижение
     out.extend_from_slice(&[0x1b, 0x69]); // ESC i (Cut)
-    out.extend_from_slice(&[0x1D, 0x65, 0x03, 0x0C]); // GS e (Eject)
+    out.extend_from_slice(&[0x1d, 0x65, 0x03, 0x0c]); // GS e (Eject)
 
     out
 }
