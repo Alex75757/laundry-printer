@@ -42,14 +42,14 @@ jobs:
           path: C:\Laundry\bin
 
       - name: Stop old process
-        shell: powershell
+        shell: pwsh
         run: |
           schtasks /end /tn "LaundryPrinter" 2>$null
           Get-Process laundry-printer -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
 
       - name: Start via Task Scheduler
-        shell: powershell
+        shell: pwsh
         run: |
           schtasks /run /tn "LaundryPrinter"
           Start-Sleep -Seconds 3
