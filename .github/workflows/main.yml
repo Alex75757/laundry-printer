@@ -1,30 +1,42 @@
-name: Build Windows EXE
+name: Build & Deploy
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
-  workflow_dispatch: # позволяет запускать вручную
+  workflow_dispatch:
 
 jobs:
-  build-windows:
+  # 1. Сборка (на облачном Windows или на машине А)
+  build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release
+      - name: Build
+        working-directory: laundry-printer
         run: cargo build --release --target x86_64-pc-windows-msvc
-
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: laundry-tools-windows
-          path: target/x86_64-pc-windows-msvc/release/*.exe
+          name: laundry-printer-exe
+          path: laundry-printer/target/x86_64-pc-windows-msvc/release/laundry-printer.exe
+
+  # 2. Деплой на машину Б (self-hosted)
+  deploy:
+    needs: build
+    runs-on: [self-hosted, Windows, printer-host] # ← метка runner'а
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: laundry-printer-exe
+          path: C:\Laundry\bin
+
+      - name: Restart via Task Scheduler
+        shell: pwsh
+        run: |
+          schtasks /end /tn "LaundryPrinter" 2>$null
+          Get-Process laundry-printer -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          schtasks /run /tn "LaundryPrinter"
