@@ -1,42 +1,58 @@
-name: Build & Deploy
+name: Build & Deploy Windows EXE
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
-  # 1. Сборка (на облачном Windows или на машине А)
-  build:
+  # ── Сборка на облачном Windows ──
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-      - name: Build
-        working-directory: laundry-printer
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
         run: cargo build --release --target x86_64-pc-windows-msvc
-      - name: Upload
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: laundry-printer-exe
-          path: laundry-printer/target/x86_64-pc-windows-msvc/release/laundry-printer.exe
+          name: laundry-tools-windows
+          path: target/x86_64-pc-windows-msvc/release/*.exe
 
-  # 2. Деплой на машину Б (self-hosted)
+  # ── Деплой на машину Б (self-hosted runner) ──
   deploy:
-    needs: build
-    runs-on: [self-hosted, Windows, printer-host] # ← метка runner'а
+    needs: build-windows
+    runs-on: [self-hosted, Windows, printer-host]
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v4
         with:
-          name: laundry-printer-exe
+          name: laundry-tools-windows
           path: C:\Laundry\bin
 
-      - name: Restart via Task Scheduler
+      - name: Stop old process
         shell: pwsh
         run: |
           schtasks /end /tn "LaundryPrinter" 2>$null
           Get-Process laundry-printer -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
+
+      - name: Start via Task Scheduler
+        shell: pwsh
+        run: |
           schtasks /run /tn "LaundryPrinter"
+          Start-Sleep -Seconds 3
+          $p = Get-Process laundry-printer -ErrorAction SilentlyContinue
+          if (-not $p) { throw "laundry-printer did not start" }
+          Write-Host "laundry-printer started, PID=$($p.Id)"
